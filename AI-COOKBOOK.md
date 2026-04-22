@@ -148,18 +148,31 @@ See [app.py](./app.py) for the full implementation. The core idea:
 
 **One Bearer token → access to everything.** The AI doesn't need to know 15 different API keys. It authenticates once with Butler, and Butler handles per-service auth.
 
+### v2.1 Features
+
+- **`butler.yaml`** – external config file, no code rebuild to add services
+- **AI Self-Discovery** – `GET /` returns all services, endpoints, descriptions as JSON
+- **Swagger UI** – `GET /docs` for interactive API exploration
+- **`GET /status`** – health check all backends in one call
+- **`GET /audit`** – last 500 API calls with timestamps (debug AI hallucinations!)
+- **Dry-Run** – `POST /vm/create?dry_run=true` simulates without executing
+- **Hot Reload** – `POST /config/reload` picks up butler.yaml changes without restart
+
 ### Adding a Service
 
-```python
-SERVICES = {
-    "sonarr": {
-        "url": "http://10.0.0.1:8989",
-        "auth": "apikey",           # apikey | bearer | session | proxmox | n8n
-        "vault_key": "sonarr-key",  # name in Vaultwarden
-        "key_file": "sonarr",       # fallback flat file
-    },
-}
+Edit `butler.yaml` (no code changes needed):
+
+```yaml
+services:
+  my-service:
+    url: "http://10.0.0.5:3000"
+    auth: bearer              # apikey | bearer | session | proxmox | n8n
+    vault_key: my-service-key # name in Vaultwarden
+    key_file: my-service      # fallback flat file
+    description: "My cool service"
 ```
+
+Then: `POST /config/reload` – done.
 
 ### Auth Types
 
@@ -359,6 +372,8 @@ class Handler(BaseHTTPRequestHandler):
 
 ### SOUL.md (Personality + Rules)
 
+With Butler v2.1, the AI can self-discover endpoints via `GET /`. But you still need SOUL.md for rules and personality:
+
 ```markdown
 # Trulla 🍳 – Homelab Assistant
 
@@ -366,16 +381,15 @@ class Handler(BaseHTTPRequestHandler):
 Base: http://butler:8888
 Auth: `Authorization: Bearer TOKEN`
 
-### Quick Reference
-- `GET /vm/list` – all VMs
-- `POST /vm/create` – create VM (takes ~10 min!)
-- `POST /tts/speak` – text to speech
-- `/{service}/{path}` – proxy to any service
+## Self-Discovery
+Call GET / to see all available services and endpoints.
+Call GET /docs for interactive Swagger UI.
 
 ## Rules
 - ALWAYS use Butler API, NEVER SSH directly
 - ALWAYS VMs, NEVER LXC
 - NEVER touch Caddy, Emby, FRP without asking
+- Use ?dry_run=true before creating VMs if unsure
 ```
 
 ### Skills (Task-Specific Knowledge)
@@ -406,16 +420,16 @@ curl -X POST http://butler:8888/tts/speak \
 
 ## Adding New Service Endpoints
 
-Want your AI to control a new service? Three steps:
+Want your AI to control a new service? Two steps (no code changes!):
 
-### 1. Add to Butler SERVICES dict
+### 1. Add to butler.yaml
 
-```python
-"my-service": {
-    "url": "http://10.0.0.5:3000",
-    "auth": "bearer",
-    "vault_key": "my-service-token",
-},
+```yaml
+my-service:
+  url: "http://10.0.0.5:3000"
+  auth: bearer
+  vault_key: my-service-token
+  description: "What this service does"
 ```
 
 ### 2. Store the credential
@@ -428,16 +442,9 @@ echo "my-api-token" > /data/api/my-service
 # Create item named "my-service-token" with the API key in Notes
 ```
 
-### 3. Tell the AI
+Then reload: `POST /config/reload`
 
-Add to SOUL.md or create a skill:
-```markdown
-## My Service
-- List items: GET /my-service/api/items
-- Create item: POST /my-service/api/items {"name": "..."}
-```
-
-That's it. The AI can now `curl http://butler:8888/my-service/api/items` and it works.
+The AI discovers the new service automatically via `GET /`. No SOUL.md update, no container rebuild.
 
 ### Common Services to Add
 
@@ -475,10 +482,16 @@ Named volumes (`database:`) get deleted by `docker compose down -v`. Use bind mo
 `dotenv` v17 writes to stdout on load, which breaks MCP's JSON-RPC protocol. Pin to v16: `npm install dotenv@16`.
 
 ### 7. The AI Will Break Your Network
-Our AI once created a VM with the same IP as the host it was running on. Add explicit rules to SOUL.md about what NOT to do.
+Our AI once created a VM with the same IP as the host it was running on. Add explicit rules to SOUL.md about what NOT to do. Use `?dry_run=true` on destructive operations.
 
 ### 8. Keep SOUL.md Small
-The AI's system prompt has limited space. Don't dump your entire infrastructure docs in there. Use skills for detailed knowledge, SOUL.md for rules and quick reference only.
+The AI's system prompt has limited space. Don't dump your entire infrastructure docs in there. With Butler v2.1, the AI can self-discover services via `GET /` – SOUL.md only needs rules and personality.
+
+### 9. External Config > Hardcoded
+We started with a hardcoded `SERVICES` dict in Python. Every service change required a container rebuild. Moving to `butler.yaml` + `POST /config/reload` was a game-changer – add services in seconds.
+
+### 10. Audit Everything
+Without an audit log, debugging "what did the AI do?" means digging through chat session files. Butler's `/audit` endpoint logs every call with timestamp, endpoint, status, and dry-run flag.
 
 ---
 
