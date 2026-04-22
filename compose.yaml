@@ -1,0 +1,24 @@
+services:
+  homelab-butler:
+    build: .
+    container_name: homelab-butler
+    restart: always
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./api-keys:/data/api:ro          # flat-file credentials
+      - vault-cache:/data/vault-cache     # vaultwarden sync cache
+      - ~/.ssh:/root/.ssh:ro              # SSH keys for VM operations
+    environment:
+      - API_KEY_DIR=/data/api
+      - VAULT_CACHE_DIR=/data/vault-cache
+      - BUTLER_TOKEN=${BUTLER_TOKEN}
+      - PROXMOX_URL=${PROXMOX_URL:-https://proxmox:8006}
+      - AUTOMATION_HOST=${AUTOMATION_HOST:-user@automation}
+      - ISO_BUILDER_PATH=${ISO_BUILDER_PATH:-/opt/iso-builder/build-iso.sh}
+      - VM_DEFAULT_PASSWORD=${VM_DEFAULT_PASSWORD:-changeme}
+      - SPEAKER_URL=${SPEAKER_URL:-}
+      - CHATTERBOX_URL=${CHATTERBOX_URL:-}
+
+volumes:
+  vault-cache:
