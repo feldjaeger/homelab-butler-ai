@@ -1,0 +1,45 @@
+# Butler Service Configuration
+# Copy to butler.yaml and customize for your homelab
+
+services:
+  sonarr:
+    url: "http://10.0.0.1:8989"
+    auth: apikey
+    vault_key: sonarr-key
+    description: "TV show management"
+
+  radarr:
+    url: "http://10.0.0.1:7878"
+    auth: apikey
+    vault_key: radarr-key
+    description: "Movie management"
+
+  grafana:
+    url: "http://10.0.0.2:3000"
+    auth: bearer
+    vault_key: grafana-token
+    description: "Monitoring dashboards"
+
+  homeassistant:
+    url: "http://10.0.0.3:8123"
+    auth: bearer
+    vault_key: ha-token
+    description: "Home automation"
+
+  # Add your services here...
+  # Auth types: apikey, bearer, n8n, proxmox, session
+
+vm:
+  automation_host: "user@automation-server"
+  iso_builder_path: "/opt/iso-builder/build-iso.sh"
+  proxmox_url: "https://proxmox:8006"
+  default_password: "changeme"
+  ansible_base_path: "/opt/ansible"
+  inventory_file: "/opt/ansible/inventory.ini"
+  default_group: "auto"
+  default_user: "user"
+
+tts:
+  speaker_url: "http://pi:10800"
+  chatterbox_url: "http://gpu-host:8004/tts"
+  default_voice: "default.mp3"
