@@ -8,6 +8,26 @@
 
 ---
 
+## 🤖 For AI Agents: Quick Start
+
+**You are an AI agent managing this homelab. Here's your workflow:**
+
+1. **Self-Discover:** `GET /` – returns all configured services and endpoints
+2. **Check Health:** `GET /status` – verify all backends are reachable
+3. **Execute Tasks:** Use proxy endpoints like `/{service}/{api_path}`
+4. **Audit Trail:** `GET /audit` – review what you (or others) did
+
+**Golden Rules:**
+- ALWAYS use Butler API, NEVER SSH directly to services
+- ALWAYS use VMs, NEVER LXC containers
+- VM creation takes ~10 min – set HTTP timeout to **700s**
+- IP schema: `10.X.1.Y` (X = Node number, e.g., node5 → 10.5.1.Y)
+- Node 7 VMs: SSH user is `chris@`, not `sascha@`
+- Git (Forgejo) is source of truth for Docker Compose files
+- All Docker volumes under `/app-config/`
+
+---
+
 ## Quick Reference for AI Agents
 
 ### Core Endpoints
@@ -38,7 +58,33 @@
 5. Adds host to Ansible inventory
 6. Runs Ansible base setup (Docker, Borgmatic, monitoring)
 
-**Timeout:** Set to **700s** – VM creation takes ~10 minutes!
+**⚠️ Critical:** Set HTTP timeout to **700s** – VM creation takes ~10 minutes!
+
+**Example for AI Agents:**
+```python
+import requests
+
+BUTLER_URL = "http://10.4.1.116:8888"
+BUTLER_TOKEN = "YOUR_TOKEN"  # From secure env, NOT in code
+
+headers = {"Authorization": f"Bearer {BUTLER_TOKEN}"}
+
+# Create VM
+response = requests.post(
+    f"{BUTLER_URL}/vm/create",
+    headers=headers,
+    json={
+        "node": 5,
+        "ip": "10.5.1.115",
+        "hostname": "lychee",
+        "cores": 2,
+        "memory": 4096,
+        "disk": 32
+    },
+    timeout=700  # Critical!
+)
+print(response.json())
+```
 
 ### Service Proxy
 
@@ -182,14 +228,31 @@ curl http://localhost:8888/health
 ### Environment Variables (.env)
 
 ```bash
-BUTLER_TOKEN=your-secret-token-here
+# API Authentication - Generate secure random token
+BUTLER_TOKEN=your-secure-token-here
+
+# Proxmox Configuration
 PROXMOX_URL=https://proxmox-ip:8006
+PROXMOX_USER=root@pam
+# PROXMOX_PASSWORD stored in Vaultwarden as 'proxmox-token'
+
+# Automation Host (for VM lifecycle via SSH)
 AUTOMATION_HOST=user@automation-ip
+
+# ISO Builder (path inside container or host mount)
 ISO_BUILDER_PATH=/opt/iso-builder/build-iso.sh
+
+# VM Defaults
 VM_DEFAULT_PASSWORD=changeme
+VM_DEFAULT_USER=sascha
+
+# TTS Configuration
 SPEAKER_URL=http://pi-ip:10800
 CHATTERBOX_URL=http://gpu-host:8004/tts
+DEFAULT_VOICE=deep_thought.mp3
 ```
+
+**⚠️ Security:** Never commit `.env` to Git! Use `.env.example` with placeholders.
 
 ### Butler Config (butler.yaml)
 

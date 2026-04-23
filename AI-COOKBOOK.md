@@ -586,8 +586,8 @@ To replicate this setup in your homelab:
 
 ### Phase 1: Infrastructure
 - [ ] Proxmox VE cluster (1+ nodes)
-- [ ] Dedicated automation host (VM or physical)
-- [ ] Vaultwarden instance
+- [ ] Dedicated automation host (VM or physical) with SSH access to Proxmox
+- [ ] Vaultwarden instance (for credential management)
 - [ ] WireGuard VPN (optional, for remote access)
 
 ### Phase 2: Butler API
@@ -598,25 +598,140 @@ To replicate this setup in your homelab:
 - [ ] Test `GET /` and `GET /health`
 
 ### Phase 3: AI Agent
-- [ ] Install Hermes
+- [ ] Install Hermes (`pip install hermes-ai`)
 - [ ] Configure LLM provider (Ollama Cloud recommended)
-- [ ] Create SOUL.md with rules
-- [ ] Add skills for common tasks
-- [ ] Connect to Butler API
+- [ ] Create SOUL.md with rules and personality
+- [ ] Add skills for common tasks (TTS, VM deployment, etc.)
+- [ ] Connect to Butler API via MCP or direct HTTP
 
 ### Phase 4: Automation
-- [ ] Set up iso-builder scripts
-- [ ] Create Ansible playbooks
+- [ ] Set up iso-builder scripts (Debian preseed)
+- [ ] Create Ansible playbooks (base-setup, borgmatic, monitoring)
 - [ ] Configure SSH keys between Butler and automation host
 - [ ] Test VM creation end-to-end
 
 ### Phase 5: Integration
-- [ ] Set up Telegram bot for chat interface
-- [ ] Configure TTS for voice feedback
-- [ ] Enable audit logging
-- [ ] Create monitoring dashboards
+- [ ] Set up Telegram bot for chat interface (optional)
+- [ ] Configure TTS for voice feedback (optional)
+- [ ] Enable audit logging (`GET /audit`)
+- [ ] Create monitoring dashboards (Grafana)
 
 ---
+
+## 🛠️ Build Your Own Butler: Step-by-Step
+
+**Want to replicate this architecture? Follow these steps:**
+
+### Step 1: Butler API Container
+
+```dockerfile
+# Dockerfile
+FROM python:3.11-slim
+
+RUN apt-get update && apt-get install -y openssh-client pve-manager curl
+
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+COPY app.py butler.yaml ./
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8888"]
+```
+
+### Step 2: FastAPI App Structure
+
+```python
+# app.py (simplified)
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.security import HTTPBearer
+import httpx, yaml
+
+app = FastAPI()
+security = HTTPBearer()
+config = yaml.safe_load(open("butler.yaml"))
+
+async def verify_auth(token: str = Depends(security)):
+    if token.credentials != config["auth"]["token"]:
+        raise HTTPException(401, "Invalid token")
+
+@app.get("/{service}/{path:path}")
+async def proxy(service: str, path: str, auth: str = Depends(verify_auth)):
+    svc = config["services"][service]
+    async with httpx.AsyncClient() as client:
+        headers = {"Authorization": f"Bearer {svc['token']}"} if svc["auth"] == "bearer" else {}
+        resp = await client.get(f"{svc['url']}/{path}", headers=headers)
+        return resp.json()
+```
+
+### Step 3: Credential Storage
+
+**Option A: Flat Files (Simple)**
+```bash
+mkdir -p /data/api
+echo "your-api-key" > /data/api/sonarr
+chmod 600 /data/api/sonarr
+```
+
+**Option B: Vaultwarden (Recommended)**
+```bash
+# Butler syncs credentials from Vaultwarden to /data/vault-cache/
+# Item name matches vault_key in butler.yaml
+```
+
+### Step 4: VM Lifecycle Integration
+
+```python
+# In Butler API
+@app.post("/vm/create")
+async def create_vm(vm: VMCreate, auth: str = Depends(verify_auth)):
+    # 1. Build ISO with preseed
+    subprocess.run(["/opt/iso-builder/build-iso.sh", vm.ip, vm.hostname])
+    
+    # 2. Upload ISO to Proxmox
+    subprocess.run(["pvesh", "create", f"/nodes/{vm.node}/storage/local/content", ...])
+    
+    # 3. Create VM
+    subprocess.run(["pvesh", "create", f"/nodes/{vm.node}/qemu", ...])
+    
+    # 4. Wait for SSH (timeout 700s!)
+    wait_for_ssh(vm.ip, timeout=700)
+    
+    # 5. Add to Ansible inventory
+    add_to_inventory(vm.hostname, vm.ip)
+    
+    # 6. Run Ansible
+    subprocess.run(["ansible-playbook", "-l", vm.hostname, "base-setup.yml"])
+    
+    return {"status": "ok", "vmid": vmid}
+```
+
+### Step 5: Self-Discovery Endpoint
+
+```python
+@app.get("/")
+async def root():
+    return {
+        "service": "homelab-butler",
+        "version": "2.1.0",
+        "services": {name: {"url": s["url"], "auth": s["auth"]} 
+                     for name, s in config["services"].items()},
+        "endpoints": {
+            "proxy": "GET/POST /{service}/{path}",
+            "vm_list": "GET /vm/list",
+            "vm_create": "POST /vm/create",
+            "tts_speak": "POST /tts/speak"
+        }
+    }
+```
+
+### Security Checklist
+
+- [ ] **Never hardcode tokens** – use env vars or Vaultwarden
+- [ ] **Rate limiting** – prevent abuse (e.g., `slowapi`)
+- [ ] **Audit logging** – track all API calls
+- [ ] **Input validation** – sanitize all user input
+- [ ] **Network isolation** – Butler on management network only
+- [ ] **Token rotation** – change `BUTLER_TOKEN` periodically
 
 ## License
 
