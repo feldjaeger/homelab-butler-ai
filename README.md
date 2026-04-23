@@ -22,7 +22,7 @@
 - ALWAYS use VMs, NEVER LXC containers
 - VM creation takes ~10 min – set HTTP timeout to **700s**
 - IP schema: `10.X.1.Y` (X = Node number, e.g., node5 → 10.5.1.Y)
-- Node 7 VMs: SSH user is `chris@`, not `YOUR_USER@`
+- Some VMs may use different SSH users – check your VM configuration
 - Git (Forgejo) is source of truth for Docker Compose files
 - All Docker volumes under `/app-config/`
 
