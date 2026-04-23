@@ -1,173 +1,257 @@
-# 🤵 Homelab Butler
+# 🤵 Homelab Butler API
 
 **One API to manage your entire homelab.** Designed as the single entry point for AI agents to control infrastructure via simple HTTP calls.
 
-Born from the real-world need of getting an AI assistant ([Hermes/Trulla](https://github.com/lks-ai/hermes)) to reliably manage a 7-node Proxmox homelab. After weeks of the AI hallucinating success instead of actually making API calls, we built Butler to make every operation a single, simple HTTP request.
+> **Version:** 2.1.0  
+> **Base URL:** `http://BUTLER_IP:8888`  
+> **Auth:** `Authorization: Bearer YOUR_TOKEN`
 
-## What it does
+---
 
-| Category | Endpoints | What happens |
-|----------|-----------|-------------|
-| **Service Proxy** | `/{service}/{path}` | Routes to 15+ backend services with automatic auth injection |
-| **VM Lifecycle** | `POST /vm/create` | One call → ISO build, VM create, SSH wait, Ansible setup (~10 min) |
-| **Inventory** | `POST /inventory/host` | Adds host to Ansible inventory with group structure |
-| **TTS** | `POST /tts/speak` | Text-to-speech on physical speaker or as Telegram voice message |
+## Quick Reference for AI Agents
 
-## The Problem We Solved
+### Core Endpoints
 
-AI agents (LLMs with tool-calling) are great at making HTTP requests. They're terrible at:
-- Multi-step SSH chains across hosts
-- Remembering which credentials go where
-- Waiting for async operations (VM boot, Ansible runs)
-- Not hallucinating that they did something when they didn't
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | **Self-discovery** – returns all services and endpoints |
+| `/health` | GET | Health check |
+| `/status` | GET | Health of all backend services |
+| `/audit` | GET | Recent API calls (debugging) |
+| `/config/reload` | POST | Reload butler.yaml and vault cache |
+| `/vault/reload` | POST | Force vault cache reload |
 
-**Butler wraps all that complexity into single API calls.** The AI just needs to `curl -X POST /vm/create` and gets back a fully provisioned VM with Docker, backups, and monitoring.
+### VM Lifecycle
 
-### LLM Selection Matters
+| Endpoint | Method | Body / Params |
+|----------|--------|---------------|
+| `/vm/list` | GET | – |
+| `/vm/create` | POST | `{"node": 5, "ip": "10.5.1.115", "hostname": "my-vm", "cores": 2, "memory": 4096, "disk": 32}` |
+| `/vm/status/{vmid}` | GET | – |
+| `/vm/{vmid}` | DELETE | – |
 
-We tested multiple models for agent reliability:
+**VM Creation Flow (automatic):**
+1. Builds custom Debian ISO with preseed (static IP, SSH keys, user)
+2. Uploads ISO to Proxmox node
+3. Creates VM with EFI boot, SCSI disk, virtio NIC
+4. Starts VM and waits for SSH (~5 min)
+5. Adds host to Ansible inventory
+6. Runs Ansible base setup (Docker, Borgmatic, monitoring)
 
-| Model | Tool-Calling | Result |
-|-------|-------------|--------|
-| `qwen3-coder:480b` | ❌ Hallucinated success | Said "done!" without making any API calls |
-| `qwen3.5:397b` | ✅ Actually works | Makes real HTTP calls, follows instructions |
-| `minimax-m2.7` | ✅ Works well | 97% skill adherence per benchmarks |
+**Timeout:** Set to **700s** – VM creation takes ~10 minutes!
 
-**Key insight:** Coding models ≠ agent models. Use general-purpose models with native tool-calling for infrastructure automation.
+### Service Proxy
 
-## Quick Start
+Access any backend service through Butler with automatic auth injection:
+
+```
+GET/POST/PUT/DELETE /{service}/{path}
+```
+
+| Service | Auth Type | Example Path |
+|---------|-----------|--------------|
+| `sonarr` | apikey | `/sonarr/api/v3/series` |
+| `radarr` | apikey | `/radarr/api/v3/movie` |
+| `grafana` | bearer | `/grafana/api/dashboards` |
+| `homeassistant` | bearer | `/homeassistant/api/states` |
+| `proxmox` | proxmox | `/proxmox/api2/json/nodes` |
+| `n8n` | n8n | `/n8n/api/v1/workflows` |
+| `outline` | bearer | `/outline/api/documents.search` |
+| `forgejo` | bearer | `/forgejo/api/v1/user/repos` |
+| `dockhand` | session | `/dockhand/api/stacks` |
+| `uptime` | bearer | `/uptime/api/status-page` |
+| `waha` | apikey | `/waha/api/sendText` |
+| `seerr` | apikey | `/seerr/api/v1/requests` |
+| `tdarr` | apikey | `/tdarr/api/v2/collection` |
+| `immich` | apikey | `/immich/api/assets` |
+| `sabnzbd` | apikey | `/sabnzbd/api?mode=queue` |
+
+### TTS (Text-to-Speech)
+
+| Endpoint | Method | Body |
+|----------|--------|------|
+| `/tts/speak` | POST | `{"text": "Hello!", "target": "speaker\|telegram", "voice": "deep_thought.mp3"}` |
+| `/tts/voices` | GET | – |
+| `/tts/health` | GET | – |
+
+### Ansible Integration
+
+| Endpoint | Method | Body |
+|----------|--------|------|
+| `/inventory/host` | POST | `{"name": "hostname", "ip": "10.X.1.Y", "group": "optional"}` |
+| `/ansible/run` | POST | `{"hostname": "my-vm"}` |
+| `/ansible/status/{job_id}` | GET | – |
+
+---
+
+## Configuration
+
+### Adding a Service
+
+Edit `butler.yaml`:
+
+```yaml
+services:
+  my-service:
+    url: "http://10.X.1.Y:PORT"
+    auth: apikey  # or: bearer, n8n, proxmox, session
+    vault_key: my-service-token
+    description: "What this service does"
+```
+
+Then reload: `POST /config/reload`
+
+### Auth Types
+
+| Type | Header | Used By |
+|------|--------|---------|
+| `apikey` | `X-Api-Key: <key>` | Sonarr, Radarr, Seerr, WAHA, Immich, SABnzbd, Tdarr |
+| `bearer` | `Authorization: Bearer <token>` | Outline, Grafana, Home Assistant, Uptime Kuma, Forgejo |
+| `n8n` | `X-N8N-API-KEY: <key>` | n8n |
+| `proxmox` | `PVEAPIToken=<user>=<secret>` | Proxmox VE |
+| `session` | Cookie-based | Dockhand |
+
+### Credential Storage
+
+Butler reads credentials in order:
+1. **Vaultwarden cache** (`/data/vault-cache/` – synced by host cron)
+2. **Flat files** (`/data/api/<name>`)
+
+**Recommendation:** Start with flat files, migrate to Vaultwarden later.
+
+---
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  AI Agent (Hermes/Trulla)                               │
+│  - LLM: qwen3.5:397b-cloud                              │
+│  - Single Bearer Token for everything                   │
+└──────────────┬──────────────────────────────────────────┘
+               │ HTTP
+┌──────────────▼──────────────────────────────────────────┐
+│  Butler API (:8888)                                     │
+│  ┌─────────────┬──────────────┬───────────┬──────────┐ │
+│  │ Service     │ VM Lifecycle │ Ansible   │ TTS      │ │
+│  │ Proxy       │ (Proxmox)   │ Inventory │ Speaker  │ │
+│  │ 15 backends │ create/list  │ add host  │ Telegram │ │
+│  │ auto-auth   │ delete/status│ run play  │          │ │
+│  └──────┬──────┴──────┬───────┴─────┬─────┴────┬─────┘ │
+└─────────┼─────────────┼─────────────┼──────────┼───────┘
+          │             │             │          │
+    ┌─────▼─────┐ ┌─────▼─────┐ ┌────▼────┐ ┌──▼──┐
+    │ Sonarr    │ │ Proxmox   │ │Ansible  │ │ Pi5 │
+    │ Radarr    │ │ Cluster   │ │on auto- │ │ TTS │
+    │ Grafana   │ │ (7 nodes) │ │mation1  │ │     │
+    │ n8n ...   │ │           │ │         │ │     │
+    └───────────┘ └───────────┘ └─────────┘ └─────┘
+```
+
+---
+
+## Installation
+
+### Prerequisites
+
+- Docker + Docker Compose
+- Proxmox VE cluster (for VM lifecycle)
+- SSH access from Butler to automation host
+- Vaultwarden (optional, for credential management)
+
+### Quick Start
 
 ```bash
-git clone https://github.com/feldjaeger/homelab-butler.git
-cd homelab-butler
+git clone https://github.com/feldjaeger/homelab-butler-ai.git
+cd homelab-butler-ai
+
 cp .env.example .env
-# Edit .env with your values
+cp butler.yaml.example butler.yaml
+
+# Edit .env and butler.yaml with your values
 
 # Add API keys as flat files
 mkdir -p api-keys
 echo "your-sonarr-key" > api-keys/sonarr
 echo "your-radarr-key" > api-keys/radarr
 
-# Edit SERVICES dict in app.py with your backends
-
 docker compose up -d
 curl http://localhost:8888/health
 ```
 
-## Architecture
-
-```
-AI Agent (Hermes/Trulla/ChatGPT/etc.)
-    │
-    ▼
-Butler API (:8888)  ─── single auth token ───
-    │
-    ├── Service Proxy ──→ Sonarr, Radarr, Grafana, n8n, ...
-    │                     (auto-injects API keys per service)
-    │
-    ├── VM Lifecycle ──→ Proxmox API
-    │       │
-    │       └──→ automation host via SSH
-    │              ├── iso-builder (custom Debian ISOs)
-    │              └── Ansible (base setup)
-    │
-    └── TTS ──→ Chatterbox (GPU) ──→ Pi Speaker / Telegram
-```
-
-## Configuration
-
-### Adding a Service
-
-Edit the `SERVICES` dict in `app.py`:
-
-```python
-SERVICES = {
-    "sonarr": {
-        "url": "http://10.0.0.1:8989",
-        "auth": "apikey",           # apikey | bearer | session | proxmox | n8n
-        "vault_key": "sonarr-key",  # name in vault cache
-        "key_file": "sonarr",       # fallback flat file in /data/api/
-    },
-}
-```
-
-### Auth Types
-
-| Type | Header | Use for |
-|------|--------|---------|
-| `apikey` | `X-Api-Key: <key>` | Sonarr, Radarr, Seerr, WAHA |
-| `bearer` | `Authorization: Bearer <key>` | Outline, Grafana, Home Assistant |
-| `n8n` | `X-N8N-API-KEY: <key>` | n8n |
-| `proxmox` | `PVEAPIToken=<id>=<secret>` | Proxmox VE |
-| `session` | Cookie-based login | Dockhand |
-
-### Credentials
-
-Butler reads credentials in order:
-1. **Vaultwarden cache** (synced by host cron to `/data/vault-cache/`)
-2. **Flat files** in `/data/api/<name>`
-
-This means you can start with flat files and migrate to Vaultwarden later.
-
-## VM Lifecycle (the killer feature)
+### Environment Variables (.env)
 
 ```bash
-# Create a complete VM with one call
-curl -X POST http://butler:8888/vm/create \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "node": 5,
-    "ip": "10.5.1.115",
-    "hostname": "my-service",
-    "cores": 2,
-    "memory": 4096,
-    "disk": 32
-  }'
+BUTLER_TOKEN=your-secret-token-here
+PROXMOX_URL=https://proxmox-ip:8006
+AUTOMATION_HOST=user@automation-ip
+ISO_BUILDER_PATH=/opt/iso-builder/build-iso.sh
+VM_DEFAULT_PASSWORD=changeme
+SPEAKER_URL=http://pi-ip:10800
+CHATTERBOX_URL=http://gpu-host:8004/tts
 ```
 
-**What happens automatically:**
-1. Builds a custom Debian ISO with preseed (static IP, SSH keys, user)
-2. Uploads ISO to the Proxmox node
-3. Creates VM with EFI boot, SCSI disk, virtio NIC
-4. Starts VM and waits for SSH (~5 min)
-5. Adds host to Ansible inventory
-6. Runs Ansible base setup (Docker, Borgmatic backups, monitoring agent)
+### Butler Config (butler.yaml)
 
-**Response:**
-```json
-{
-  "status": "ok",
-  "hostname": "my-service",
-  "ip": "10.5.1.115",
-  "steps": ["iso-builder: ok", "ssh: my-service reachable", "inventory: added", "ansible: ok"]
-}
+```yaml
+services:
+  sonarr:
+    url: "http://10.X.1.Y:8989"
+    auth: apikey
+    vault_key: sonarr-key
+    description: "TV show management"
+
+  radarr:
+    url: "http://10.X.1.Y:7878"
+    auth: apikey
+    vault_key: radarr-key
+    description: "Movie management"
+
+vm:
+  automation_host: "user@automation-ip"
+  iso_builder_path: "/opt/iso-builder/build-iso.sh"
+  proxmox_url: "https://proxmox-ip:8006"
+  default_password: "changeme"
+  ansible_base_path: "/opt/ansible"
+  inventory_file: "/opt/ansible/inventory.ini"
+
+tts:
+  speaker_url: "http://pi-ip:10800"
+  chatterbox_url: "http://gpu-host:8004/tts"
+  default_voice: "deep_thought.mp3"
 ```
+
+---
 
 ## For AI Agents
 
-### Prompt Template
-
-Add this to your AI agent's system prompt or skill file:
+### System Prompt Template
 
 ```markdown
 ## Infrastructure Management via Butler API
 
 Base URL: http://BUTLER_IP:8888
-Auth: Authorization: Bearer YOUR_TOKEN
+Auth: `Authorization: Bearer YOUR_TOKEN`
+
+### Self-Discovery
+- Call `GET /` to discover all available services and endpoints
+- Call `GET /docs` for interactive Swagger UI
+- Call `GET /status` to check backend health
 
 ### Quick Reference
-- List VMs: GET /vm/list
-- Create VM: POST /vm/create {"node": N, "ip": "IP", "hostname": "NAME", "cores": 2, "memory": 4096, "disk": 32}
-- Delete VM: DELETE /vm/{vmid}
-- Proxy to any service: GET/POST /{service}/{api_path}
-- TTS on speaker: POST /tts/speak {"text": "Hello!", "target": "speaker"}
+- List VMs: `GET /vm/list`
+- Create VM: `POST /vm/create` with `{"node": N, "ip": "10.X.1.Y", "hostname": "NAME", "cores": 2, "memory": 4096, "disk": 32}`
+- Delete VM: `DELETE /vm/{vmid}`
+- Proxy to any service: `GET/POST /{service}/{api_path}`
+- TTS: `POST /tts/speak` with `{"text": "Hello!", "target": "speaker|telegram"}`
 
 ### Rules
-- ALWAYS use Butler API, never SSH directly to services
-- VM creation takes ~10 minutes, set timeout to 700s
+- ALWAYS use Butler API, NEVER SSH directly to services
+- ALWAYS use VMs, NEVER LXC containers
+- VM creation takes ~10 minutes – set timeout to 700s
 - All Docker volumes under /app-config/
 - Git (Forgejo) is source of truth for compose files
+- Use `?dry_run=true` before destructive operations if available
 ```
 
 ### Why This Works for AI
@@ -177,29 +261,50 @@ Auth: Authorization: Bearer YOUR_TOKEN
 3. **Synchronous** – `/vm/create` blocks until done (with progress in `steps`)
 4. **Idempotent** – `/inventory/host` won't duplicate entries
 5. **Self-documenting** – `GET /` returns all available services
+6. **Audit trail** – `GET /audit` shows what the AI did
 
-## Requirements
+---
 
-- **Proxmox VE** cluster (for VM lifecycle)
-- **Docker** on the Butler host
-- **SSH access** from Butler container to automation host
-- **iso-builder** script (for custom Debian ISOs) – or remove VM endpoints
-- **Ansible** playbooks for base setup – or customize the setup step
+## Troubleshooting
 
-## Adapting for Your Homelab
+### Invalid Token
+```json
+{"detail": "Invalid token"}
+```
+→ Check `BUTLER_TOKEN` in `.env` and match with your Authorization header
 
-1. Fork this repo
-2. Edit `SERVICES` dict with your backends and IPs
-3. Add your API keys as flat files or set up Vaultwarden sync
-4. Remove features you don't need (VM lifecycle, TTS, etc.)
-5. Point your AI agent at `http://butler:8888`
+### Service Not Found
+```json
+{"detail": "Service not configured"}
+```
+→ Add service to `butler.yaml` and `POST /config/reload`
 
-The code is intentionally simple (~300 lines of Python). Read it, understand it, make it yours.
+### VM Creation Fails
+1. Check Proxmox API access: `curl -k https://proxmox:8006/api2/json/nodes`
+2. Verify SSH from Butler to automation host works
+3. Check iso-builder script exists and is executable
+4. Review audit log: `GET /audit?limit=50`
+
+### Credential Issues
+- Butler reads from `/data/vault-cache/` first, then `/data/api/`
+- Ensure files contain only the raw key (no trailing newlines)
+- Reload vault: `POST /vault/reload`
+
+---
+
+## Security Notes
+
+⚠️ **NEVER commit credentials to Git!**
+
+- Use `.env.example` with placeholder values
+- Add `.env` and `api-keys/` to `.gitignore`
+- Store real tokens in Vaultwarden or secure environment variables
+- Butler token should be rotated periodically
+
+---
 
 ## License
 
 MIT – do whatever you want with it.
 
-## Credits
-
-Built by [@feldjaeger](https://github.com/feldjaeger) with help from Kiro 🤖 and Trulla 🍳 (who finally learned to make actual API calls instead of hallucinating them).
+Built by [@feldjaeger](https://github.com/feldjaeger) with Kiro 🤖 and Trulla 🍳.

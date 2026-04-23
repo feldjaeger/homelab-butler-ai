@@ -2,44 +2,144 @@
 # Copy to butler.yaml and customize for your homelab
 
 services:
+  # Media Management (Arr Stack)
   sonarr:
-    url: "http://10.0.0.1:8989"
+    url: "http://10.X.1.Y:8989"
     auth: apikey
     vault_key: sonarr-key
-    description: "TV show management"
+    description: "TV show management (UHD)"
+
+  sonarr1080p:
+    url: "http://10.X.1.Y:8989"
+    auth: apikey
+    vault_key: sonarr-1080p-key
+    description: "TV show management (1080p)"
 
   radarr:
-    url: "http://10.0.0.1:7878"
+    url: "http://10.X.1.Y:7878"
     auth: apikey
     vault_key: radarr-key
-    description: "Movie management"
+    description: "Movie management (UHD)"
 
+  radarr1080p:
+    url: "http://10.X.1.Y:7878"
+    auth: apikey
+    vault_key: radarr-1080p-key
+    description: "Movie management (1080p)"
+
+  seerr:
+    url: "http://10.X.1.Y:5055"
+    auth: apikey
+    vault_key: seerr-key
+    description: "Media request management"
+
+  # Docker Management
+  dockhand:
+    url: "http://10.X.1.Y:3000"
+    auth: session
+    vault_key: dockhand-session
+    description: "Docker Compose management UI"
+
+  # Monitoring & Observability
   grafana:
-    url: "http://10.0.0.2:3000"
+    url: "http://10.X.1.Y:3000"
     auth: bearer
     vault_key: grafana-token
     description: "Monitoring dashboards"
 
+  uptime:
+    url: "http://VPS_IP:3001"
+    auth: bearer
+    vault_key: uptime-kuma-token
+    description: "Uptime monitoring (VPS)"
+
+  # Home Automation
   homeassistant:
-    url: "http://10.0.0.3:8123"
+    url: "http://10.X.1.Y:8123"
     auth: bearer
     vault_key: ha-token
     description: "Home automation"
 
-  # Add your services here...
-  # Auth types: apikey, bearer, n8n, proxmox, session
+  # Workflow Automation
+  n8n:
+    url: "http://10.X.1.Y:5678"
+    auth: n8n
+    vault_key: n8n-api-key
+    description: "Workflow automation"
 
+  # Wiki / Documentation
+  outline:
+    url: "http://10.X.1.Y:3000"
+    auth: bearer
+    vault_key: outline-api-key
+    description: "Wiki (Outline)"
+
+  # Git Server
+  forgejo:
+    url: "http://10.X.1.Y:3001"
+    auth: bearer
+    vault_key: forgejo-token
+    description: "Git server (Gitea fork)"
+
+  # Infrastructure
+  proxmox:
+    url: "https://proxmox-ip:8006"
+    auth: proxmox
+    vault_key: proxmox-token
+    description: "Proxmox VE cluster API"
+
+  semaphore:
+    url: "http://10.X.1.Y:8090"
+    auth: bearer
+    vault_key: semaphore-token
+    description: "Ansible UI/API"
+
+  # Communication
+  waha:
+    url: "http://10.X.1.Y:3500"
+    auth: apikey
+    vault_key: waha-api-key
+    description: "WhatsApp API"
+
+  # Media Processing
+  tdarr:
+    url: "http://10.X.1.Y:8265"
+    auth: apikey
+    vault_key: tdarr-api-key
+    description: "Video transcoding automation"
+
+  immich:
+    url: "http://10.X.1.Y:2283"
+    auth: apikey
+    vault_key: immich-api-key
+    description: "Photo management"
+
+  sabnzbd:
+    url: "http://10.X.1.Y:8080"
+    auth: apikey
+    vault_key: sabnzbd-api-key
+    description: "NZB downloader"
+
+# VM Lifecycle Configuration
 vm:
-  automation_host: "user@automation-server"
+  automation_host: "user@automation-ip"
   iso_builder_path: "/opt/iso-builder/build-iso.sh"
-  proxmox_url: "https://proxmox:8006"
+  proxmox_url: "https://proxmox-ip:8006"
   default_password: "changeme"
+  default_user: "sascha"
   ansible_base_path: "/opt/ansible"
   inventory_file: "/opt/ansible/inventory.ini"
   default_group: "auto"
-  default_user: "user"
 
+  # Network schema
+  # VM IPs follow pattern: 10.X.1.Y where X = node number
+  # Example: Node 5 VMs use 10.5.1.Y
+
+# TTS Configuration
 tts:
-  speaker_url: "http://pi:10800"
+  speaker_url: "http://pi-ip:10800"
   chatterbox_url: "http://gpu-host:8004/tts"
-  default_voice: "default.mp3"
+  default_voice: "deep_thought.mp3"
+  default_language: "de"
+
+  # Targets: "speaker" (Pi speaker) or "telegram" (voice message)
