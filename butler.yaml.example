@@ -126,7 +126,7 @@ vm:
   iso_builder_path: "/opt/iso-builder/build-iso.sh"
   proxmox_url: "https://proxmox-ip:8006"
   default_password: "changeme"
-  default_user: "sascha"
+  default_user: "YOUR_USERNAME"
   ansible_base_path: "/opt/ansible"
   inventory_file: "/opt/ansible/inventory.ini"
   default_group: "auto"

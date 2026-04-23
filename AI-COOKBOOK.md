@@ -380,7 +380,7 @@ d-i netcfg/get_gateway string 10.5.1.1
 d-i netcfg/get_nameservers string 1.1.1.1 8.8.8.8
 
 d-i passwd/user-fullname string Homelab VM
-d-i passwd/username string sascha
+d-i passwd/username string YOUR_USERNAME
 d-i passwd/user-password password changeme
 d-i passwd/user-password-again password changeme
 
@@ -389,7 +389,7 @@ d-i pkgsel/upgrade select none
 
 # SSH key injection
 d-i preseed/late_command string \
-  echo "ssh-ed25519 AAAA..." >> /target/home/sascha/.ssh/authorized_keys
+  echo "ssh-ed25519 AAAA..." >> /target/home/YOUR_USERNAME/.ssh/authorized_keys
 ```
 
 ### Why Custom ISOs?
@@ -466,7 +466,7 @@ Call `GET /docs` for interactive Swagger UI.
 - NEVER touch Caddy, Emby, FRP without asking
 - Use `?dry_run=true` before creating VMs if unsure
 - IP schema: 10.X.1.Y (X = Node number)
-- Node 7 VMs: SSH user is `chris@`, not `sascha@`
+- Node 7 VMs: SSH user is `chris@`, not `YOUR_USER@`
 ```
 
 ### Skills (Task-Specific Knowledge)

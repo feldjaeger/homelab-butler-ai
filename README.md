@@ -22,7 +22,7 @@
 - ALWAYS use VMs, NEVER LXC containers
 - VM creation takes ~10 min – set HTTP timeout to **700s**
 - IP schema: `10.X.1.Y` (X = Node number, e.g., node5 → 10.5.1.Y)
-- Node 7 VMs: SSH user is `chris@`, not `sascha@`
+- Node 7 VMs: SSH user is `chris@`, not `YOUR_USER@`
 - Git (Forgejo) is source of truth for Docker Compose files
 - All Docker volumes under `/app-config/`
 
@@ -244,7 +244,7 @@ ISO_BUILDER_PATH=/opt/iso-builder/build-iso.sh
 
 # VM Defaults
 VM_DEFAULT_PASSWORD=changeme
-VM_DEFAULT_USER=sascha
+VM_DEFAULT_USER=YOUR_USERNAME
 
 # TTS Configuration
 SPEAKER_URL=http://pi-ip:10800
